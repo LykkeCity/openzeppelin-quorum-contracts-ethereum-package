@@ -29,12 +29,11 @@ contract ERC777 is Initializable, IERC777, IERC20 {
     using SafeMath for uint256;
     using Address for address;
 
-    IERC1820Registry constant private _erc1820 = IERC1820Registry(0x1820a4B7618BdE71Dce8cdc73aAB6C95905faD24);
-
     mapping(address => uint256) private _balances;
 
     uint256 private _totalSupply;
 
+    IERC1820Registry private _erc1820;
     string private _name;
     string private _symbol;
 
@@ -68,8 +67,10 @@ contract ERC777 is Initializable, IERC777, IERC20 {
     function initialize(
         string memory name,
         string memory symbol,
-        address[] memory defaultOperators
+        address[] memory defaultOperators,
+        address erc1820registry
     ) public initializer {
+        _erc1820 = IERC1820Registry(erc1820registry);
         _name = name;
         _symbol = symbol;
 
@@ -295,6 +296,35 @@ contract ERC777 is Initializable, IERC777, IERC20 {
     }
 
     /**
+     * @dev Burn tokens
+     * @param operator address operator requesting the operation
+     * @param from address token holder address
+     * @param amount uint256 amount of tokens to burn
+     * @param data bytes extra information provided by the token holder
+     * @param operatorData bytes extra information provided by the operator (if any)
+     */
+    function _burn(
+        address operator,
+        address from,
+        uint256 amount,
+        bytes memory data,
+        bytes memory operatorData
+    )
+        internal
+    {
+        require(from != address(0), "ERC777: burn from the zero address");
+
+        _callTokensToSend(operator, from, address(0), amount, data, operatorData);
+
+        // Update state variables
+        _totalSupply = _totalSupply.sub(amount);
+        _balances[from] = _balances[from].sub(amount);
+
+        emit Burned(operator, from, amount, data, operatorData);
+        emit Transfer(from, address(0), amount);
+    }
+
+    /**
      * @dev Creates `amount` tokens and assigns them to `account`, increasing
      * the total supply.
      *
@@ -318,7 +348,7 @@ contract ERC777 is Initializable, IERC777, IERC20 {
         bytes memory userData,
         bytes memory operatorData
     )
-    internal
+        internal
     {
         require(account != address(0), "ERC777: mint to the zero address");
 
@@ -361,35 +391,6 @@ contract ERC777 is Initializable, IERC777, IERC20 {
         _move(operator, from, to, amount, userData, operatorData);
 
         _callTokensReceived(operator, from, to, amount, userData, operatorData, requireReceptionAck);
-    }
-
-    /**
-     * @dev Burn tokens
-     * @param operator address operator requesting the operation
-     * @param from address token holder address
-     * @param amount uint256 amount of tokens to burn
-     * @param data bytes extra information provided by the token holder
-     * @param operatorData bytes extra information provided by the operator (if any)
-     */
-    function _burn(
-        address operator,
-        address from,
-        uint256 amount,
-        bytes memory data,
-        bytes memory operatorData
-    )
-        private
-    {
-        require(from != address(0), "ERC777: burn from the zero address");
-
-        _callTokensToSend(operator, from, address(0), amount, data, operatorData);
-
-        // Update state variables
-        _totalSupply = _totalSupply.sub(amount);
-        _balances[from] = _balances[from].sub(amount);
-
-        emit Burned(operator, from, amount, data, operatorData);
-        emit Transfer(from, address(0), amount);
     }
 
     function _move(
